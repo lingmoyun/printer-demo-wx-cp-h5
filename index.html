@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>Winford</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+
+    <!-- jquery -->
+    <script src="https://lf3-cdn-tos.bytecdntp.com/cdn/expire-99-y/jquery/3.4.0/jquery.min.js"
+            type="application/javascript"></script>
+
+    <!-- Vue -->
+    <script src="https://lf26-cdn-tos.bytecdntp.com/cdn/expire-99-y/vue/2.6.14/vue.min.js"
+            type="application/javascript"></script>
+
+    <!-- element-ui -->
+    <!-- 引入样式 -->
+    <link href="https://lf26-cdn-tos.bytecdntp.com/cdn/expire-99-y/element-ui/2.15.7/theme-chalk/index.min.css"
+          type="text/css" rel="stylesheet"/>
+    <!-- 引入组件库 -->
+    <script src="https://lf6-cdn-tos.bytecdntp.com/cdn/expire-99-y/element-ui/2.15.7/index.min.js"
+            type="application/javascript"></script>
+
+    <!-- 企业微信JSSDK -->
+    <script src="https://res.wx.qq.com/open/js/jweixin-1.2.0.js"></script>
+
+    <script src='https://cdn.bootcss.com/vConsole/3.3.2/vconsole.min.js'></script>
+
+    <script src="CPCL.min.js"></script>
+    <script src="hex.min.js"></script>
+
+    <style>
+    </style>
+</head>
+<body>
+<div id="app" style="position: relative;">
+    <img id="myImg" src="IMG_0039.JPG" alt="bb" v-on:click="scanDevices" />
+    <canvas id="myCanvas" style="display: none;"></canvas>
+    <el-collapse v-model="activeName" accordion>
+        <el-collapse-item v-for="d in deviceList" :title="d.name + '(' + d.RSSI + ')'" :name="d.name">
+            <div>
+                <el-button v-on:click="testPrint(d.deviceId)">测试打印</el-button>
+                <el-button v-on:click="testPrintBatch(d.deviceId)">测试连续打印</el-button>
+            </div>
+        </el-collapse-item>
+    </el-collapse>
+</div>
+
+</body>
+<script>
+    window.vConsole = new window.VConsole();
+    let vue = new Vue({
+        el: '#app',
+        data: {
+            deviceList: [],
+            activeName: 'A4B-80942E',
+            printQueue: [],
+        },
+        methods: {
+            // 构建CPCL指令
+            buildCPCL: function () {
+                // 获取图像数据
+                const imgObj = document.getElementById("myImg");    // 获取img标签对象
+                const canvas = document.getElementById("myCanvas"); // 获取canvas标签对象
+                canvas.width = imgObj.width;                        // 设置canvas标签宽
+                canvas.height = imgObj.height;                      // 设置canvas标签高
+                const canvasCtx = canvas.getContext("2d");          // 获取在画布上绘图的环境
+                canvasCtx.drawImage(imgObj, 0, 0);                  // 将图片绘制到画布上
+                const canvasImageData = canvasCtx.getImageData(0, 0, canvas.width, canvas.height);    // 获取画布上的图像像素矩阵
+
+                // 构建CPCL指令
+                console.log(`${new Date()} cpcl build start...`);
+                const cpcl = CPCL.Builder.createArea(0, 2374, 1)
+                    //.taskId('1')
+                    .pageWidth(1678)
+                    // .imageCG(canvasImageData, 0, 0) // 原始指令
+                    .imageGG(canvasImageData, 0, 0) // 压缩指令
+                    .formPrint()
+                    .build();
+                    // .buildHexString();
+                console.log(`${new Date()} cpcl build end => ${canvasImageData.width}x${canvasImageData.height}->${cpcl.byteLength}`);
+                // console.log('cpcl', cpcl);
+                return cpcl;
+            },
+            // 构建CPCL指令
+            buildCPCLs: function (num = 3) {
+                // 获取图像数据
+                const imgObj = document.getElementById("myImg");    // 获取img标签对象
+                const canvas = document.getElementById("myCanvas"); // 获取canvas标签对象
+                canvas.width = imgObj.width;                        // 设置canvas标签宽
+                canvas.height = imgObj.height;                      // 设置canvas标签高
+                const canvasCtx = canvas.getContext("2d");          // 获取在画布上绘图的环境
+                canvasCtx.drawImage(imgObj, 0, 0);                  // 将图片绘制到画布上
+                const canvasImageData = canvasCtx.getImageData(0, 0, canvas.width, canvas.height);    // 获取画布上的图像像素矩阵
+
+                console.log(`${new Date()} cpcl build start...`);
+                let cpclList = [];
+                for (let i = 0; i < num; i++) {
+                    // 构建CPCL指令
+                    const cpcl = CPCL.Builder.createArea(0, 2374, 1)
+                        .taskId(`${i}`)
+                        .pageWidth(1678)
+                        .imageGG(canvasImageData, 0, 0) // 压缩指令
+                        .formPrint()
+                        .build();
+
+                    cpclList.push(cpcl);
+                }
+                console.log(`${new Date()} cpcl build end.`);
+                return cpclList;
+            },
+            // 测试打印
+            testPrint: async function (deviceId) {
+                let onBLEConnectionStateChange = (res) => {
+                    // 该方法回调中可以用于处理连接意外断开等异常情况
+                    //console.log(res); // {"deviceId":"1998BDF7-A4BE-817E-1680-FA63DD1411CA","errorCode":0,"errorMsg":"already connected","connected":true}
+                    //console.log(`device ${res.deviceId} state has changed, connected: ${res.connected}`);
+                    if (!res.connected && res.deviceId == this.device.deviceId) {
+                        console.log('蓝牙断开连接');
+                        this.device = null;
+                    }
+                };
+
+                let onBLECharacteristicValueChange = (res) => {
+                    console.log('onBLECharacteristicValueChange', res);
+                    this.$message({
+                        message: '打印完成',
+                        type: 'success'
+                    });
+                };
+
+                let device = await this.connect({
+                    deviceId,
+                    onBLEConnectionStateChange,
+                    onBLECharacteristicValueChange,
+                });
+                this.device = device;
+                console.log(device);
+
+                await this.sleep(1000);
+
+                // 构建CPCL指令
+                const cpcl = this.buildCPCL();
+               
+                console.log(`${new Date()} send start...`);
+                device.write(cpcl).then(() => {
+                    console.log(`${new Date()} send finish.`);
+                });
+            },
+            // 测试连续打印
+            testPrintBatch: async function (deviceId) {
+                let onBLEConnectionStateChange = (res) => {
+                    // 该方法回调中可以用于处理连接意外断开等异常情况
+                    if (!res.connected && res.deviceId == this.device.deviceId) {
+                        console.log('蓝牙断开连接');
+                        this.device = null;
+                    }
+                };
+
+                // 蓝牙数据监听
+                let resJsons = [];
+                let buf = undefined;
+                let onBLECharacteristicValueChange = (res) => {
+                    let buffer = res.value; // ArrayBuffer
+                    let data = new Uint8Array(buffer);
+                    // let hex = HEX.ab2hex(buffer);
+                    // console.log('onBLECharacteristicValueChange', hex);
+
+                    // *****粘包处理开始**************************************************************************
+                    for (let i = 0; i < data.byteLength; i++) {
+                        const b = data[i];
+                        if (buf) {
+                            buf.push(b);
+                        }
+                        if (b === 0x7B) { // '{'
+                            buf = [b];
+                        }
+                        if (b === 0x7D) { // '}'
+                            let jsonStr = HEX.ab2str(new Uint8Array(buf).buffer);
+                            resJsons.push(jsonStr);
+                            buf = undefined;
+                        }
+                    }
+                    if (buf) {
+                        return;
+                    }
+                    // *****粘包处理结束**************************************************************************
+
+                    let jsonStr;
+                    while (jsonStr = resJsons.shift()) {
+                        let resJson = JSON.parse(jsonStr);
+                        let taskid = resJson.taskid;
+                        let printMsg = resJson.printMsg;
+
+                        if (printMsg === '77') { // 77表示打印机收到指令，开始打印，这时可以发送下一张让打印机缓存起来
+                            console.log('taskid=' + taskid + ' 打印机收到指令');
+                            const nextValue = this.printQueue.shift();
+                            if (nextValue) {
+                                console.log(`send next page: ${nextValue.byteLength}Byte.`);
+                              
+                                this.device.write(nextValue);
+                            }
+                        } else { // 打印机打印结果回复
+                            const printSuccess = printMsg === '0';
+                            if (printSuccess) { // 打印成功
+                                console.log(`taskid=${taskid} print successed.`);
+                            } else { // 打印失败
+                                // 清空打印任务
+                                this.printQueue.length = 0;
+                                console.log(`taskid=${taskid} print err, code = ${printMsg}, clear printQueue.`);
+                            }
+
+                        }
+                    }
+                };
+
+                let device = await this.connect({
+                    deviceId,
+                    onBLEConnectionStateChange,
+                    onBLECharacteristicValueChange,
+                });
+                this.device = device;
+                console.log(device);
+
+                await this.sleep(1000);
+
+                // 构建CPCL指令
+                // const cpcl = this.buildCPCL();
+                this.printQueue = this.buildCPCLs(5); // 生成5张数据
+               
+                const cpcl = this.printQueue.shift();
+                console.log(`${new Date()} send start...`);
+                device.write(cpcl).then(() => {
+                    console.log(`${new Date()} send finish.`);
+                });
+            },
+            // 睡眠
+            sleep: (time) => new Promise((resolve, reject) => setTimeout(resolve, time)),
+            // 初始化蓝牙
+            _openBluetoothAdapter: function () {
+                return new Promise((resolve, reject) => {
+                    // 初始化蓝牙
+                    wx.openBluetoothAdapter({
+                        success: resolve,
+                        fail: (res) => {
+                            if (res.errCode === 10001) {
+                                this.$message({
+                                    message: '请打开蓝牙',
+                                    type: 'warning'
+                                });
+                            } else {
+                                throw {
+                                    code: res.errCode,
+                                    msg: '蓝牙初始化失败'
+                                };
+                            }
+                        }
+                    })
+                });
+            },
+            // 开始搜寻附近的蓝牙外围设备
+            _startBluetoothDevicesDiscovery: () => {
+                return new Promise((resolve, reject) => {
+                    wx.startBluetoothDevicesDiscovery({
+                        allowDuplicatesKey: false,
+                        success: resolve,
+                        fail: (res) => {
+                            console.log(res);
+                        }
+                    })
+                });
+            },
+            // 蓝牙建立连接
+            _createBLEConnection: (deviceId) => {
+                // 连接BLE
+                return new Promise((resolve, reject) => {
+                    wx.createBLEConnection({
+                        deviceId,
+                        success: resolve,
+                        fail: async (res) => {
+                            if (res.errCode === 10006) {
+                                resolve(await _connectBluetooth(deviceId));
+                            } else if (res.errCode === 10012) {
+                                wx.closeBluetoothAdapter();
+                                resolve(await _connectBluetooth(deviceId));
+                            }
+                        }
+                    })
+                });
+            },
+            // 获取服务
+            _getBLEDeviceServices: (deviceId) => {
+                return new Promise((resolve, reject) => {
+                    wx.getBLEDeviceServices({
+                        deviceId,
+                        success: async (res) => {
+                            for (let i = 0; i < res.services.length; i++) {
+                                let service = res.services[i];
+                                //console.log(service);
+                                if (service.uuid.startsWith('0000FF00')) {
+                                    resolve(service);
+                                    break;
+                                }
+                                // if (service.isPrimary) {
+                                //     resolve(service);
+                                //     break;
+                                // }
+                            }
+                        },
+                        fail: (res) => {
+                            throw {
+                                code: res.errCode,
+                                msg: '获取蓝牙服务失败'
+                            };
+                        }
+                    })
+                });
+            },
+            // 获取读写特征值
+            _getBLEDeviceCharacteristics: (deviceId, serviceId) => {
+                return new Promise((resolve, reject) => {
+                    wx.getBLEDeviceCharacteristics({
+                        deviceId,
+                        serviceId,
+                        success: (res) => {
+                            let characteristics = {};
+                            for (let i = 0; i < res.characteristics.length; i++) {
+                                let item = res.characteristics[i];
+                                //console.log(item);
+                                if (item.properties.notify) {
+                                    characteristics.notify = characteristics.notify || item;
+                                }
+
+                                if (item.properties.write) {
+                                    characteristics.write = characteristics.write || item;
+                                }
+                            }
+                            resolve(characteristics);
+                        },
+                        fail(e) {
+                            // throw {
+                            //     code: e.errCode,
+                            //     msg: '获取蓝牙特征失败'
+                            // };
+                            reject(e);
+                        }
+                    });
+                });
+            },
+            // 写数据
+            _wxWriteBLECharacteristicValue: ({
+                deviceId,
+                serviceId,
+                characteristicId,
+                value
+            }) => {
+                return new Promise((resolve, reject) => {
+                    wx.writeBLECharacteristicValue({
+                        deviceId,
+                        serviceId,
+                        characteristicId,
+                        value,
+                        success: resolve,
+                        fail: (e) => {
+                            // console.log('writeBLECharacteristicValue', e);
+                            reject(e);
+                        }
+                    });
+                });
+            },
+            // 写数据
+            _writeBLECharacteristicValue: async function (deviceId, serviceId, characteristicId, value) {
+                //let mtu = wx.getSystemInfoSync().platform === 'ios' ? 10000 : 20;
+                let mtu = 10000;
+
+                const total = value.byteLength;
+                let num = 0;
+                let count = 0;
+                while (count < total) {
+                    const subValue = value.slice(count, count + mtu); // 取出MTU个数据
+                    if (subValue.byteLength === 0) break; // 表示已经发送完毕
+                    count = count + subValue.byteLength;
+                    // console.log("================count=" + count)
+
+                    // num % 50 == 0 && await this.sleep(100); // 企业微信JSSDK不需要
+                    // await this._wxWriteBLECharacteristicValue({
+                    this._wxWriteBLECharacteristicValue({
+                        deviceId,
+                        serviceId,
+                        characteristicId,
+                        value: subValue
+                    });
+                    num++;
+                }
+                console.log("================num=" + num)
+
+            },
+            // 扫描附近的设备
+            scanDevices: function() {
+                // 初始化蓝牙
+                this._openBluetoothAdapter().then((res) => {
+                    // 开始搜寻附近的蓝牙外围设备
+                    return this._startBluetoothDevicesDiscovery();
+                }).then((res) => {
+                    // 添加监听
+                    wx.onBluetoothDeviceFound((res) => {
+                        res.map((items, index) => {
+                            let bol = true;
+                            this.deviceList.map((item, index) => {
+                                if (item.deviceId === items.deviceId) {
+                                    bol = false;
+                                }
+                            })
+
+                            if (items.deviceId && items.name && bol) {
+                                let arr = this.deviceList;
+                                arr.push(items);
+                            }
+                        })
+                    })
+                    // 5s后停止搜索
+                    setTimeout(() => {
+                        wx.stopBluetoothDevicesDiscovery({
+                            success: (res) => {
+                                //console.log(res)
+                            }
+                        })
+                    }, 5000);
+                });
+            },
+            // 连接蓝牙
+            connect: async function ({
+                deviceId,
+                onBLEConnectionStateChange,
+                onBLECharacteristicValueChange,
+            }) {
+                let device = {
+                    connected: false,
+                    deviceId: deviceId,
+                    serviceId: '',
+                    notifyCharacteristicId: '',
+                    writeCharacteristicId: '',
+                    onBLEConnectionStateChange,
+                    onBLECharacteristicValueChange,
+                };
+
+                // 初始化蓝牙
+                await this._openBluetoothAdapter().then((res) => {
+                    // 添加监听
+                    wx.onBLEConnectionStateChange((res) => {
+                        // 该方法回调中可以用于处理连接意外断开等异常情况
+                        //console.log(res); // {"deviceId":"1998BDF7-A4BE-817E-1680-FA63DD1411CA","errorCode":0,"errorMsg":"already connected","connected":true}
+                        console.log(`device ${res.deviceId} state has changed, connected: ${res.connected}`);
+                        device.connected = res.connected;
+                        if (device.onBLEConnectionStateChange) {
+                            device.onBLEConnectionStateChange(res);
+                        }
+                    });
+                    // 连接BLE
+                    return this._createBLEConnection(deviceId);
+                }).then((res) => {
+                    // 获取服务
+                    return this._getBLEDeviceServices(deviceId);
+                }).then((service) => {
+                    // 获取读写特征值
+                    device.serviceId = service.uuid;
+                    return this._getBLEDeviceCharacteristics(device.deviceId, device.serviceId);
+                }).then((characteristics) => {
+                    // 读
+                    device.notifyCharacteristicId = characteristics.notify ? characteristics.notify.uuid : '';
+                    // 写
+                    device.writeCharacteristicId = characteristics.write ? characteristics.write.uuid : '';
+                }).catch((err) => {
+                    console.log(err);
+                });
+
+                // 监听
+                wx.onBLECharacteristicValueChange((res) => {
+                    // console.log(res.deviceId, res.serviceId, res.characteristicId, 'notify', res.value);
+                    if (res.characteristicId === device.notifyCharacteristicId && device.onBLECharacteristicValueChange) {
+                        device.onBLECharacteristicValueChange(res);
+                    }
+                });
+
+                // 读监听
+                if (device.notifyCharacteristicId) {
+                    wx.notifyBLECharacteristicValueChange({
+                        state: true, // 启用 notify 功能
+                        // 这里的 deviceId 需要已经通过 createBLEConnection 与对应设备建立链接
+                        deviceId: device.deviceId,
+                        // 这里的 serviceId 需要在 getBLEDeviceServices 接口中获取
+                        serviceId: device.serviceId,
+                        // 这里的 characteristicId 需要在 getBLEDeviceCharacteristics 接口中获取
+                        characteristicId: device.notifyCharacteristicId,
+                        success(res) {
+                            console.log(device.deviceId, res.errMsg);
+                        }
+                    });
+                }
+
+                // 写方法
+                device.write = async (value) => {
+                    if (device.writeCharacteristicId) {
+                        await this._writeBLECharacteristicValue(device.deviceId, device.serviceId, device.writeCharacteristicId, value);
+                    }
+                };
+
+                return device;
+            },
+        },
+        created: function () {
+            $.ajax({
+                url: "http://192.168.2.40:8080/winford/wx/cp/jsapi",
+                type: "POST",
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                data: {url: window.location.href},
+                success: (res) => {
+                    //console.log(res);
+                    wx.config({
+                        beta: true,// 必须这么写，否则wx.invoke调用形式的jsapi会有问题
+                        debug: false, // 开启调试模式,调用的所有api的返回值会在客户端alert出来，若要查看传入的参数，可以在pc端打开，参数信息会通过log打出，仅在pc端时才会打印。
+                        appId: res.appId, // 必填，企业微信的corpID
+                        timestamp: res.timestamp, // 必填，生成签名的时间戳
+                        nonceStr: res.nonceStr, // 必填，生成签名的随机串
+                        signature: res.signature,// 必填，签名，见 附录-JS-SDK使用权限签名算法
+                        jsApiList: [
+                            'openBluetoothAdapter', 
+                            'closeBluetoothAdapter', 
+                            'startBluetoothDevicesDiscovery', 
+                            'stopBluetoothDevicesDiscovery', 
+                            'onBluetoothDeviceFound', 
+                            'createBLEConnection',
+                            'closeBLEConnection',
+                            'onBLEConnectionStateChange',
+                            'getBLEDeviceServices',
+                            'getBLEDeviceCharacteristics',
+                            'readBLECharacteristicValue',
+                            'writeBLECharacteristicValue',
+                            'notifyBLECharacteristicValueChange',
+                            'onBLECharacteristicValueChange',
+                        ] // 必填，需要使用的JS接口列表，凡是要调用的接口都需要传进来
+                    });
+                    wx.ready(() => {
+                        // config信息验证后会执行ready方法，所有接口调用都必须在config接口获得结果之后，config是一个客户端的异步操作，所以如果需要在页面加载时就调用相关接口，则须把相关接口放在ready函数中调用来确保正确执行。对于用户触发时才调用的接口，则可以直接调用，不需要放在ready函数中。
+                        this.scanDevices();
+                    });
+                },
+                error: (err) => {
+                    this.$message.error(err);
+                }
+            });
+        },
+        mounted: function () {
+            // 测试CPCL
+            // setTimeout(() => {
+            //     this.buildCPCLs(5);
+            // }, 1000);
+        },
+     })
+</script>
+</html>
