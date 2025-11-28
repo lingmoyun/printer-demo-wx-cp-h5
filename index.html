@@ -30,7 +30,6 @@
     <script src='https://cdn.bootcss.com/vConsole/3.3.2/vconsole.min.js'></script>
 
     <script src="CPCL.min.js"></script>
-    <script src="HEX.min.js"></script>
 
     <style>
     </style>
@@ -51,6 +50,7 @@
 
 </body>
 <script>
+    const HEX = CPCL.Tools.HEX;
     window.vConsole = new window.VConsole();
     let vue = new Vue({
         el: '#app',
@@ -179,7 +179,7 @@
                             buf = [b];
                         }
                         if (b === 0x7D) { // '}'
-                            let jsonStr = HEX.ab2str(new Uint8Array(buf).buffer);
+                            let jsonStr = HEX.ab2str(buf);
                             resJsons.push(jsonStr);
                             buf = undefined;
                         }
